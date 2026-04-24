@@ -105,8 +105,28 @@ static void* lookup_app_config(const char *cmdline)
 	/* Fast path missed: try glob patterns */
 	g_hash_table_iter_init(&iter, app_config_registry);
 	while (g_hash_table_iter_next(&iter, &key, &value)) {
-		if (fnmatch((const char *)key, cmdline, 0) == 0)
-			return value;
+		const char *pattern = (const char *)key;
+
+		/*
+		 * If the pattern has no path component, match against the
+		 * basename only -- so "chrome" matches /usr/bin/chrome, etc.
+		 * If it contains a path, match the full cmdline for precise
+		 * targeting, e.g. "/usr/bin/python3" vs "/opt/conda/bin/python3".
+		 */
+		gchar *pattern_base = g_path_get_basename(pattern);
+		bool no_path = g_strcmp0(pattern_base, pattern) == 0;
+		g_free(pattern_base);
+
+		if (no_path) {
+			gchar *cmdline_base = g_path_get_basename(cmdline);
+			bool match = fnmatch(pattern, cmdline_base, 0) == 0;
+			g_free(cmdline_base);
+			if (match)
+				return value;
+		} else {
+			if (fnmatch(pattern, cmdline, 0) == 0)
+				return value;
+		}
 	}
 	return NULL;
 }
