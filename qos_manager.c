@@ -54,7 +54,7 @@ static void create_thread_registry(struct app_config *app)
 
 static void destroy_threads_registry(struct app_config *app)
 {
-	g_hash_table_destroy(app_config_registry);
+	g_hash_table_destroy(app->threads_registry);
 }
 
 static void* lookup_thread(struct app_config *app, const char *comm)
