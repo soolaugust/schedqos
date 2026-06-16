@@ -270,6 +270,32 @@ void parse_thread_qos_mapping_int(enum qos_tag qos_tag, char *attr, int value)
 		LOG_ERROR("Unknown int sched_attr: %s", attr);
 }
 
+static int apply_sched_attr_with_fallback(pid_t pid, struct sched_attr *sa)
+{
+	int ret;
+
+	ret = sched_setattr(pid, sa, 0);
+	if (ret == 0)
+		return 0;
+
+	/* Kernel rejected full sched_attr (likely E2BIG or EOPNOTSUPP for QoS fields) */
+	if (errno == E2BIG || errno == EINVAL || errno == EOPNOTSUPP) {
+		if (sa->sched_flags & SCHED_FLAG_QOS) {
+			LOG_WARN("Kernel rejected sched_qos (errno=%d), applied QoS without rampup for pid %d",
+				    errno, pid);
+			/* Retry without QoS fields */
+			sa->sched_flags &= ~SCHED_FLAG_QOS;
+			sa->sched_qos_type = 0;
+			sa->sched_qos_value = 0;
+			sa->sched_qos_cookie = 0;
+			sa->size = 56; /* Legacy sched_attr size without QoS fields */
+			ret = sched_setattr(pid, sa, 0);
+		}
+	}
+
+	return ret;
+}
+
 void apply_thread_qos_tag(pid_t pid, const char *comm, enum qos_tag qos_tag, uint64_t period)
 {
 	struct sched_attr sa = {};
@@ -292,7 +318,7 @@ void apply_thread_qos_tag(pid_t pid, const char *comm, enum qos_tag qos_tag, uin
 	}
 
 	LOG_INFO("Applying QoS Tag %s for %d %s", qos_tag_to_char(qos_tag), pid, comm);
-	ret = sched_setattr(pid, &sa, 0);
+	ret = apply_sched_attr_with_fallback(pid, &sa);
 	if (ret)
 		LOG_ERROR("Failed to change sched_attr for %d", pid);
 
